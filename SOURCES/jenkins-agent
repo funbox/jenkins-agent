@@ -1,0 +1,325 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2041,SC2086,SC2140,SC2162
+
+################################################################################
+
+APP=$(basename "$0")
+VER="1.0.0"
+DESC="Shell wrapper for executing Jenkins Agent via JNLP"
+
+################################################################################
+
+SUPPORTED_ARGS="profile !help !version"
+SHORT_ARGS="p:profile !h:help !v:version"
+MERGEABLE_ARGS=""
+KEEP_ARGS=true
+
+CONF_FILE="/etc/jenkins-agent/jenkins-agent.conf"
+CONF_CACHE="true"
+CONF_CACHE_PATH="/tmp"
+CONF_UPDATED=""
+
+JAVA_OPTIONS="-Xms512m -Xmx512m"
+
+JENKINS_PATH="/var/lib/jenkins"
+JENKINS_AGENT_JAR_PATH="${JENKINS_PATH}/agent.jar"
+
+################################################################################
+
+if [[ -r "/etc/sysconfig/$APP" ]] ; then
+  source "/etc/sysconfig/$APP"
+fi
+
+################################################################################
+
+# Print configuration warning
+#
+# Code: Yes
+# Echo: Yes
+showConfWarn() {
+  echo "Error: unable to read config: ${CONF_FILE}"
+  exit 1
+}
+
+# Fetch Slave Agent jar from Jenkins master and save to working directory
+#
+# Code: Yes
+# Echo: No
+fetchSlaveAgent() {
+  local retval
+
+  if ! type wget >/dev/null ; then
+    echo "Error: unable to find program: wget"
+    exit 1
+  fi
+
+  if [[ -z "$general_jenkins_agent_url" ]] ; then
+    echo "Error: Jenkins Agent JAR URL must be set: (general:jenkins_agent_url)"
+    exit 1
+  fi
+
+  if [[ -r "$JENKINS_AGENT_JAR_PATH" ]] ; then
+    return 0
+  fi
+
+  wget -O "${JENKINS_AGENT_JAR_PATH}" "$general_jenkins_agent_url"
+  retval=$?
+
+  return $retval
+}
+
+# Execute Slave Agent jar with given JNLP URL and token
+#
+# 1: Jenkins URL (String)
+# 2: Jenkins secret token (String)
+#
+# Code: No
+# Echo: Yes
+execSlaveAgent() {
+  local jenkins_url jenkins_token java_options
+
+  jenkins_url="$1"
+  jenkins_token="$2"
+  java_options="$3"
+
+  if [[ ! -r "$JENKINS_AGENT_JAR_PATH" ]] ; then
+    echo "Error: unable to read file: ${JENKINS_AGENT_JAR_PATH}"
+    exit 1
+  fi
+
+  if [[ -n "$java_options" ]] ; then
+    JAVA_OPTIONS="$java_options"
+  fi
+
+  exec java $JAVA_OPTIONS -jar "$JENKINS_AGENT_JAR_PATH" \
+            -workDir "${JENKINS_PATH}" \
+            -jnlpUrl "${jenkins_url}/slave-agent.jnlp" \
+            -secret "${jenkins_token}"
+}
+
+# Print version message
+#
+# Code: No
+# Echo: Yes
+version() {
+  echo "$APP $VER - $DESC"
+  echo ""
+}
+
+# Print usage message
+#
+# Code: No
+# Echo: Yes
+usage() {
+  echo ""
+  echo "Usage: $APP {options}"
+  echo ""
+  echo "Options"
+  echo ""
+  echo "  --profile, -p profile       Jenkins Agent profile name"
+  echo "  --version, -v               Display version"
+  echo "  --help, -h                  Display this message"
+  echo ""
+  echo "Examples"
+  echo ""
+  echo "  $APP --profile example"
+  echo "  Run $APP with example profile specified in configuration file"
+  echo ""
+}
+
+################################################################################
+
+# Main entrypoint
+#
+# Code: Yes
+# Echo: Yes
+main() {
+  local jenkins_url jenkins_token
+
+  jenkins_url="${profile}_jenkins_url"
+  jenkins_token="${profile}_jenkins_token"
+  java_options="${profile}_java_options"
+
+  if [[ -n "${version}" ]] ; then
+    version
+    exit 0
+  fi
+
+  if [[ -n "${help}" ]] ; then
+    usage
+    exit 0
+  fi
+
+  if [[ -z "${profile}" ]] ; then
+    usage
+    exit 0
+  fi
+
+  if [[ -z "${!jenkins_url}" ]] ; then
+    echo "Error: Jenkins URL must be set: (${profile}:jenkins_url)"
+    exit 1
+  fi
+
+  if [[ -z "${!jenkins_token}" ]] ; then
+    echo "Error: Jenkins token must be set: (${profile}:jenkins_token)"
+    exit 1
+  fi
+
+  fetchSlaveAgent
+
+  execSlaveAgent "${!jenkins_url}" "${!jenkins_token}" "${!java_options}"
+}
+
+################################################################################
+
+## CONF PARSING EXT #####################################################################
+
+unset cu ch cc cn cl cg cm cv ct ck
+
+CONF_FILE=${CONF_FILE//\~/$HOME}
+
+if [[ -r $CONF_FILE ]] ; then
+  [[ ! -d $CONF_CACHE_PATH || ! -w $CONF_CACHE_PATH ]] && unset CONF_CACHE
+
+  cu=$(whoami) ; ch=$(md5sum $CONF_FILE | cut -f1 -d" ") ; cc="$CONF_CACHE_PATH/${cu}-${ch}"
+
+  if [[ -n "$CONF_CACHE" && -f $cc && -r $cc ]] ; then
+    source $cc
+  else
+    [[ -n "$CONF_CACHE" ]] && rm -f $CONF_CACHE_PATH/${cu}-* &> /dev/null && touch $cc && chmod 600 $cc
+
+    while read cl ; do
+      if [[ "${cl:0:1}" == "[" ]] ; then
+        cg="${cl//]/}" ; cg="${cg//[/}" ; continue
+      fi
+
+      cm="${cl%%:*}" ; cm="${cm// /}" ; cm="${cm//-/_}"
+      cv=$(echo $cl | cut -f2-99 -d":" | sed 's/^ //g' | tr -s " " | sed 's/,/ /g')
+
+      [[ "$cv" == "false" || -z "$cv" ]] && continue
+
+      if [[ $cv =~ \{(.*)\} ]] ; then
+        ct="${BASH_REMATCH[1]}" ; ck="${ct/:/_}" ; cv="${cv//\{$ct\}/${!ck}}"
+      fi
+
+      declare "${cg}_${cm}"="$cv"
+
+      [[ -n "$CONF_CACHE" ]] && echo "${cg}_${cm}=\"${cv}\"" >> $cc
+    done < <(grep -Pv '^[ ]*(#(?!\!)|[ ]*$)|false[ ]*$' $CONF_FILE)
+
+    [[ -n "$CONF_CACHE" ]] && CONF_UPDATED=true
+  fi
+else
+  showConfWarn 2> /dev/null || :
+fi
+
+unset cu ch cc cn cl cg cm cv ct ck
+
+########################################################################################
+
+[[ $# -eq 0 ]] && main && exit $?
+
+unset arg argn argm argv argt argk
+
+argv="$*" ; argt=""
+
+while [[ -n "$1" ]] ; do
+  if [[ "$1" =~ \  && -n "$argn" ]] ; then
+    declare "$argn=$1"
+
+    unset argn && shift && continue
+  elif [[ $1 =~ ^-{1}[a-zA-Z0-9]{1,2}+.*$ ]] ; then
+    argm=${1:1}
+
+    if [[ \ $SHORT_ARGS\  =~ \ $argm:!?([a-zA-Z0-9_]*) ]] ; then
+      arg="${BASH_REMATCH[1]}"
+    else
+      declare -F showArgWarn &>/dev/null && showArgWarn "-$argm"
+      shift && continue
+    fi
+
+    if [[ -z "$argn" ]] ; then
+      argn=$arg
+    else
+      # shellcheck disable=SC2015
+      [[ -z "$argk" ]] && ( declare -F showArgValWarn &>/dev/null && showArgValWarn "--$argn" ) || declare "$argn=true"
+      argn=$arg
+    fi
+
+    if [[ ! $SUPPORTED_ARGS\  =~ !?$argn\  ]] ; then
+      declare -F showArgWarn &>/dev/null && showArgWarn "-$argm"
+      shift && continue
+    fi
+
+    if [[ ${BASH_REMATCH[0]:0:1} == "!" ]] ; then
+      declare "$argn=true" ; unset argn ; argk=true
+    else
+      unset argk
+    fi
+
+    shift && continue
+  elif [[ "$1" =~ ^-{2}[a-zA-Z]{1}[a-zA-Z0-9_-]+.*$ ]] ; then
+    arg=${1:2}
+
+    if [[ $arg == *=* ]] ; then
+      IFS="=" read -ra arg <<< "$arg"
+
+      argm="${arg[0]}" ; argm=${argm//-/_}
+
+      if [[ ! $SUPPORTED_ARGS\  =~ $argm\  ]] ; then
+        declare -F showArgWarn &>/dev/null && showArgWarn "--${arg[0]//_/-}"
+        shift && continue
+      fi
+
+      # shellcheck disable=SC2015
+      [[ -n "${!argm}" && $MERGEABLE_ARGS\  =~ $argm\  ]] && declare "$argm=${!argm} ${arg[*]:1:99}" || declare "$argm=${arg[*]:1:99}"
+
+      unset argm && shift && continue
+    else
+      # shellcheck disable=SC2178
+      arg=${arg//-/_}
+
+      if [[ -z "$argn" ]] ; then
+        # shellcheck disable=SC2128
+        argn=$arg
+      else
+        # shellcheck disable=SC2015
+        [[ -z "$argk" ]] && ( declare -F showArgValWarn &>/dev/null && showArgValWarn "--$argn" ) || declare "$argn=true"
+        # shellcheck disable=SC2128
+        argn=$arg
+      fi
+
+      if [[ ! $SUPPORTED_ARGS\  =~ !?$argn\  ]] ; then
+        declare -F showArgWarn &>/dev/null && showArgWarn "--${argn//_/-}"
+        shift && continue
+      fi
+
+      if [[ ${BASH_REMATCH[0]:0:1} == "!" ]] ; then
+        declare "$argn=true" ; unset argn ; argk=true
+      else
+        unset argk
+      fi
+
+      shift && continue
+    fi
+  else
+    if [[ -n "$argn" ]] ; then
+      # shellcheck disable=SC2015
+      [[ -n "${!argn}" && $MERGEABLE_ARGS\  =~ $argn\  ]] && declare "$argn=${!argn} $1" || declare "$argn=$1"
+
+      unset argn && shift && continue
+    fi
+  fi
+
+  argt="$argt $1" ; shift
+
+done
+
+[[ -n "$argn" ]] && declare "$argn=true"
+
+unset arg argn argm argk
+
+# shellcheck disable=SC2015,SC2086
+[[ -n "$KEEP_ARGS" ]] && main $argv || main ${argt:1}
+
+########################################################################################
