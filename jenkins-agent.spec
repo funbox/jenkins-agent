@@ -57,7 +57,7 @@ License:         MIT
 Group:           Development/Tools
 URL:             https://github.com/gongled/jenkins-agent
 
-Source0:         %{name}-v%{version}.tar.gz
+Source0:         https://github.com/gongled/%{name}/archive/v%{version}.tar.gz
 
 BuildArch:       noarch
 BuildRoot:       %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
