@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
+<<<<<<< HEAD
 # shellcheck disable=SC2041,SC2086,SC2140,SC2162
+=======
+>>>>>>> Initial commit
 
 ################################################################################
 
@@ -181,7 +184,11 @@ CONF_FILE=${CONF_FILE//\~/$HOME}
 if [[ -r $CONF_FILE ]] ; then
   [[ ! -d $CONF_CACHE_PATH || ! -w $CONF_CACHE_PATH ]] && unset CONF_CACHE
 
+<<<<<<< HEAD
   cu=$(whoami) ; ch=$(md5sum $CONF_FILE | cut -f1 -d" ") ; cc="$CONF_CACHE_PATH/${cu}-${ch}"
+=======
+  cu=`whoami` ; ch=`md5sum $CONF_FILE | cut -f1 -d" "` ; cc="$CONF_CACHE_PATH/${cu}-${ch}"
+>>>>>>> Initial commit
 
   if [[ -n "$CONF_CACHE" && -f $cc && -r $cc ]] ; then
     source $cc
@@ -194,7 +201,11 @@ if [[ -r $CONF_FILE ]] ; then
       fi
 
       cm="${cl%%:*}" ; cm="${cm// /}" ; cm="${cm//-/_}"
+<<<<<<< HEAD
       cv=$(echo $cl | cut -f2-99 -d":" | sed 's/^ //g' | tr -s " " | sed 's/,/ /g')
+=======
+      cv=`echo $cl | cut -f2-99 -d":" | sed 's/^ //g' | tr -s " " | sed 's/,/ /g'`
+>>>>>>> Initial commit
 
       [[ "$cv" == "false" || -z "$cv" ]] && continue
 
