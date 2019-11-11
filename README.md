@@ -9,7 +9,7 @@ connected to Jenkins Master via JNLP. The user is able to specify multiple agent
 
 ### From prebuilt package for RHEL7/CentOS7
 
-You can find RPM packages attached to releases on [Release page](https://github.com/gongled/piper/releases).
+You can find RPM packages attached to releases on [Release page](https://github.com/gongled/jenkins-agent/releases).
 
 ### From the source code
 
